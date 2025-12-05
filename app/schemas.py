@@ -263,6 +263,7 @@ class MinistryExamAttemptResponse(BaseModel):
     exam_id: str
     answers: Dict[str, str]  # {question_id: user_answer}
     scores: Dict[str, float]  # {question_id: score}
+    ai_feedback: Dict[str, Dict[str, Any]] = {}  # {question_id: {score: float, feedback: str, confidence: float}}
     total_score: float
     max_score: float
     is_completed: bool

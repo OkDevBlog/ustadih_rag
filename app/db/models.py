@@ -133,6 +133,7 @@ class MinistryExamAttempt(Base):
     exam_id = Column(String, ForeignKey("exams.id"), nullable=False, index=True)
     answers = Column(JSON, default=dict)  # {"ministry_question_id": "user_answer", ...}
     scores = Column(JSON, default=dict)  # {"ministry_question_id": score_value, ...}
+    ai_feedback = Column(JSON, default=dict)  # {"ministry_question_id": {"score": 0.8, "feedback": "...", "confidence": 0.9}}
     total_score = Column(Float, default=0.0)
     max_score = Column(Float, default=100.0)
     is_completed = Column(Boolean, default=False)

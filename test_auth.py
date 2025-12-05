@@ -17,5 +17,10 @@ try:
     print(f"Response: {json.dumps(response.json(), indent=2)}")
 except Exception as e:
     print(f"Error: {e}")
-    if hasattr(e, 'response'):
-        print(f"Response Text: {e.response.text}")
+    # Some exceptions (like ConnectionError) may not have a response attribute
+    try:
+        resp = getattr(e, 'response', None)
+        if resp is not None:
+            print(f"Response Text: {resp.text}")
+    except Exception:
+        pass

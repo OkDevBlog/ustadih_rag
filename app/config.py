@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     google_client_secret: str = "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"
     openai_api_key: str = "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"
     gemini_api_key: str = ""
+    # Disable heavy RAG retrieval (embeddings/vector-store downloads) by default.
+    enable_rag_retrieval: bool = False
     app_env: str = "development"
     debug: bool = False
     

@@ -2,6 +2,8 @@
 
 import os
 from typing import List, Dict, Optional, Tuple
+import json
+import re
 import google.generativeai as genai
 from app.config import settings
 from app.rag.vector_store import get_vector_store
@@ -13,13 +15,26 @@ class RAGPipeline:
     
     def __init__(self):
         """Initialize RAG pipeline with vector store and embedding service."""
-        self.vector_store = get_vector_store()
-        self.embedding_service = get_embedding_service()
+        try:
+            self.vector_store = get_vector_store()
+        except Exception as e:
+            print(f"Warning: Failed to initialize vector store: {e}")
+            self.vector_store = None
+        
+        try:
+            self.embedding_service = get_embedding_service()
+        except Exception as e:
+            print(f"Warning: Failed to initialize embedding service: {e}")
+            self.embedding_service = None
         
         # Configure Gemini API
         if settings.gemini_api_key:
-            genai.configure(api_key=settings.gemini_api_key)
-            self.model = genai.GenerativeModel('gemini-pro')
+            try:
+                genai.configure(api_key=settings.gemini_api_key)
+                self.model = genai.GenerativeModel('gemini-pro')
+            except Exception as e:
+                print(f"Warning: Failed to configure Gemini API: {e}")
+                self.model = None
         else:
             self.model = None
     
@@ -36,28 +51,35 @@ class RAGPipeline:
         Returns:
             List of relevant context documents
         """
-        # Search for similar study materials
-        where_filter = {"subject": subject} if subject else None
+        if not self.vector_store:
+            return {"materials": [], "reference_questions": []}
         
-        materials = self.vector_store.search_study_materials(
-            query=query,
-            top_k=top_k,
-            where_filter=where_filter
-        )
-        
-        # Search for similar questions for reference
-        questions = self.vector_store.search_questions(
-            query=query,
-            top_k=min(3, top_k),
-            where_filter=where_filter
-        )
-        
-        context = {
-            "materials": materials,
-            "reference_questions": questions
-        }
-        
-        return context
+        try:
+            # Search for similar study materials
+            where_filter = {"subject": subject} if subject else None
+            
+            materials = self.vector_store.search_study_materials(
+                query=query,
+                top_k=top_k,
+                where_filter=where_filter
+            )
+            
+            # Search for similar questions for reference
+            questions = self.vector_store.search_questions(
+                query=query,
+                top_k=min(3, top_k),
+                where_filter=where_filter
+            )
+            
+            context = {
+                "materials": materials,
+                "reference_questions": questions
+            }
+            
+            return context
+        except Exception as e:
+            print(f"Warning: Failed to retrieve context: {e}")
+            return {"materials": [], "reference_questions": []}
     
     def format_context_for_prompt(self, context: Dict) -> str:
         """
@@ -247,6 +269,104 @@ RESPONSE:"""
         except Exception as e:
             print(f"Error adding question: {e}")
             return False
+
+    def _extract_json_from_text(self, text: str) -> Optional[Dict]:
+        """
+        Try to extract and parse the first JSON object from a model response.
+
+        Returns a dict on success or None on failure.
+        """
+        # First try direct JSON parse
+        try:
+            return json.loads(text)
+        except Exception:
+            pass
+
+        # Attempt to find a JSON substring using braces
+        try:
+            # find the first JSON object-like substring
+            match = re.search(r"\{[\s\S]*\}", text)
+            if match:
+                substring = match.group(0)
+                return json.loads(substring)
+        except Exception:
+            return None
+
+        return None
+
+    def grade_answer(self, question_text: str, model_answer: str, student_answer: str,
+                     subject: Optional[str] = None, rubric: Optional[str] = None,
+                     max_score: float = 1.0) -> Dict:
+        """
+        Grade a student's free-text answer using the RAG pipeline + LLM.
+
+        Returns a structured dict:
+          {"score": float (0..max_score), "feedback": str, "confidence": float (0..1), "raw": str}
+
+        Behavior:
+        - Retrieves context relevant to the question if available.
+        - Builds a concise grading prompt including an optional rubric.
+        - Calls `generate_response` and attempts to parse JSON from the model output.
+        - Falls back to a conservative score of 0.0 if parsing fails.
+        """
+        # Only attempt to retrieve context if enabled in settings and vector store is available.
+        context = {"materials": [], "reference_questions": []}
+        try:
+            from app.config import settings as _settings
+            if _settings.enable_rag_retrieval and self.vector_store:
+                # wrap retrieval in try/except to avoid long blocking calls
+                try:
+                    context = self.retrieve_context(question_text, subject=subject, top_k=3)
+                except Exception as e:
+                    print(f"Warning: context retrieval failed: {e}")
+                    context = {"materials": [], "reference_questions": []}
+        except Exception:
+            # If config import fails for any reason, proceed without context
+            context = {"materials": [], "reference_questions": []}
+
+        # Build a grading system prompt
+        rubric_text = f"Rubric: {rubric}\n" if rubric else ""
+        system_prompt = (
+            "You are an objective exam grader. Read the model answer and the student answer, "
+            "and assign a score between 0 and 1, provide a short feedback comment, "
+            "and an estimated confidence between 0 and 1. Return ONLY a JSON object."
+        )
+
+        grading_prompt = (
+            f"{rubric_text}Question: {question_text}\n"
+            f"Model Answer: {model_answer}\n"
+            f"Student Answer: {student_answer}\n\n"
+            "Respond with a JSON object: {\n  \"score\": 0-1, \"feedback\": \"...\", \"confidence\": 0-1\n}"
+        )
+
+        # Invoke the generator
+        raw_output = self.generate_response(grading_prompt, context, system_prompt=system_prompt)
+
+        parsed = self._extract_json_from_text(raw_output) or {}
+
+        # Defensive parsing
+        try:
+            raw_score = float(parsed.get("score", 0.0))
+        except Exception:
+            raw_score = 0.0
+
+        # Clamp score to 0..1 and scale to max_score
+        score = max(0.0, min(1.0, raw_score)) * float(max_score)
+
+        feedback = parsed.get("feedback") if isinstance(parsed.get("feedback"), str) else ""
+
+        try:
+            confidence = float(parsed.get("confidence", 0.0))
+            confidence = max(0.0, min(1.0, confidence))
+        except Exception:
+            confidence = 0.0
+
+        return {
+            "score": score,
+            "feedback": feedback,
+            "confidence": confidence,
+            "raw": raw_output
+        }
 
 
 # Global RAG pipeline instance

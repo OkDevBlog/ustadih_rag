@@ -140,10 +140,17 @@ def test_full_exam_flow():
             print(f"[OK] Exam attempt started: {attempt_id}")
             print(f"  Started at: {attempt['started_at']}")
         else:
-            print(f"[ERROR] Failed to start attempt: {response.text}")
+            print(f"[ERROR] Failed to start attempt: status={response.status_code}")
+            print(f"Response: {response.text}")
+            try:
+                print(f"JSON: {response.json()}")
+            except:
+                pass
             return
     except Exception as e:
         print(f"[ERROR] {e}")
+        import traceback
+        traceback.print_exc()
         return
     
     # Step 5: Submit answers

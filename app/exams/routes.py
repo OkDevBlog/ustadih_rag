@@ -11,6 +11,8 @@ import json
 
 from app.db.session import SessionLocal
 from app.db.models import Exam, Question, ExamAttempt, User, MinistryExamAttempt
+from app.db.session import engine
+from sqlalchemy import inspect, text
 from app.schemas import (
     ExamCreate,
     ExamResponse,
@@ -28,6 +30,7 @@ from app.schemas import (
     MinistryExamAttemptResponse
 )
 from app.db.models import MinistryQuestion
+from app.rag.pipeline import get_rag_pipeline
 
 router = APIRouter()
 
@@ -708,38 +711,62 @@ def start_ministry_exam_attempt(
     Returns:
         New exam attempt with empty answers
     """
-    # Verify exam exists
-    exam = db.query(Exam).filter(Exam.id == exam_id).first()
-    if not exam:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Exam not found"
+    try:
+        # Verify exam exists
+        exam = db.query(Exam).filter(Exam.id == exam_id).first()
+        if not exam:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Exam not found"
+            )
+
+        # Verify user exists
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+
+        # Ensure DB has ai_feedback column for ministry_exam_attempts
+        try:
+            inspector = inspect(engine)
+            cols = [c['name'] for c in inspector.get_columns('ministry_exam_attempts')]
+            if 'ai_feedback' not in cols:
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text("ALTER TABLE ministry_exam_attempts ADD COLUMN ai_feedback JSON DEFAULT '{}'"))
+                    print('Added missing column ai_feedback to ministry_exam_attempts')
+                except Exception as e:
+                    print(f'Warning: failed to add ai_feedback column: {e}')
+        except Exception:
+            # If inspection fails, continue and rely on models (may raise later)
+            pass
+
+        # Create new attempt
+        attempt_id = f"mea_{uuid.uuid4().hex[:12]}"
+        attempt = MinistryExamAttempt(
+            id=attempt_id,
+            user_id=user_id,
+            exam_id=exam_id,
+            answers={},
+            scores={},
+            max_score=len(exam.ministry_questions) * 1.0 if exam.ministry_questions else 100.0
         )
-    
-    # Verify user exists
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-    
-    # Create new attempt
-    attempt_id = f"mea_{uuid.uuid4().hex[:12]}"
-    attempt = MinistryExamAttempt(
-        id=attempt_id,
-        user_id=user_id,
-        exam_id=exam_id,
-        answers={},
-        scores={},
-        max_score=len(exam.ministry_questions) * 1.0 if exam.ministry_questions else 100.0
-    )
-    
-    db.add(attempt)
-    db.commit()
-    db.refresh(attempt)
-    
-    return attempt
+
+        db.add(attempt)
+        db.commit()
+        db.refresh(attempt)
+
+        return attempt
+    except HTTPException:
+        # Re-raise HTTPExceptions so FastAPI can handle them normally
+        raise
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        print(f"Error in start_ministry_exam_attempt: {e}\n{tb}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 @router.post("/ministry/{exam_id}/submit", response_model=MinistryExamAttemptResponse)
@@ -809,9 +836,32 @@ def submit_ministry_exam_answers(
             if user_answer.upper() == question.correct_option.upper():
                 score = 1.0
         else:
-            # For short answer and essay, mark as submitted (manual grading needed)
-            # For now, we'll just store the answer
+            # For short answer and essay, use the pipeline.grade_answer helper
             score = 0.0
+            try:
+                pipeline = get_rag_pipeline()
+                grade_result = pipeline.grade_answer(
+                    question_text=question.question_text,
+                    model_answer=question.answer_key,
+                    student_answer=user_answer,
+                    subject=getattr(question, 'subject', None),
+                    max_score=1.0,
+                )
+
+                # grade_result includes: score, feedback, confidence, raw
+                score = float(grade_result.get('score', 0.0))
+
+                if 'ai_tmp_feedback' not in locals():
+                    ai_tmp_feedback = {}
+                ai_tmp_feedback[question_id] = {
+                    "score": score,
+                    "feedback": grade_result.get('feedback', ""),
+                    "confidence": grade_result.get('confidence', 0.0),
+                    "raw": grade_result.get('raw', "")
+                }
+            except Exception:
+                # On error, keep score 0.0 and continue
+                score = 0.0
         
         scores_dict[question_id] = score
         total_score += score
@@ -822,6 +872,9 @@ def submit_ministry_exam_answers(
     attempt.total_score = total_score
     attempt.is_completed = True
     attempt.submitted_at = datetime.utcnow()
+    # Attach AI feedback if generated
+    if 'ai_tmp_feedback' in locals():
+        attempt.ai_feedback = ai_tmp_feedback
     
     # Calculate time taken if needed
     if attempt.started_at:
