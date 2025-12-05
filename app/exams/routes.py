@@ -2,8 +2,9 @@
 """Exam management endpoints for creating, taking, and grading exams."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from typing import List, Dict
+from typing import List, Dict, Optional
 from datetime import datetime
 import uuid
 import json
@@ -19,8 +20,12 @@ from app.schemas import (
     ExamAttemptResponse,
     ExamAttemptStart,
     ExamAttemptSubmit,
-    HealthResponse
+    HealthResponse,
+    MinistryQuestionCreate,
+    MinistryQuestionResponse,
+    MinistryQuestionFilter
 )
+from app.db.models import MinistryQuestion
 
 router = APIRouter()
 
@@ -48,9 +53,10 @@ def create_exam(
 ):
     """
     Create a new exam (admin only).
+    Optionally link ministry questions if ministry_question_ids provided.
     
     Args:
-        exam_data: Exam creation data
+        exam_data: Exam creation data (can include ministry_question_ids)
         user_id: Current user ID (should be admin)
         db: Database session
         
@@ -68,6 +74,16 @@ def create_exam(
         passing_score=exam_data.passing_score,
         instructions=exam_data.instructions
     )
+    
+    # Add ministry questions if provided
+    if exam_data.ministry_question_ids:
+        ministry_questions = db.query(MinistryQuestion).filter(
+            MinistryQuestion.id.in_(exam_data.ministry_question_ids)
+        ).all()
+        
+        if ministry_questions:
+            exam.ministry_questions = ministry_questions
+            exam.total_questions = len(ministry_questions)
     
     db.add(exam)
     db.commit()
@@ -433,3 +449,239 @@ def retake_exam(
     db.refresh(new_attempt)
     
     return new_attempt
+
+
+# ==================== Ministry Questions Endpoints ====================
+
+@router.post("/ministry-questions/", response_model=MinistryQuestionResponse, status_code=status.HTTP_201_CREATED)
+def add_ministry_question(
+    question_data: MinistryQuestionCreate,
+    user_id: str = None,  # Optional for now, can be used for tracking who added it
+    db: Session = Depends(get_db)
+):
+    """
+    Add a ministry question to the database.
+    
+    Args:
+        question_data: Ministry question data including subject, grade, year, session
+        user_id: Current user ID (optional)
+        db: Database session
+        
+    Returns:
+        Created ministry question
+    """
+    question_id = f"mq_{uuid.uuid4().hex[:12]}"
+    
+    ministry_question = MinistryQuestion(
+        id=question_id,
+        subject=question_data.subject,
+        grade=question_data.grade,
+        year=question_data.year,
+        session=question_data.session,
+        question_text=question_data.question_text,
+        answer_key=question_data.answer_key,
+        question_type=question_data.question_type,
+        options=question_data.options,
+        correct_option=question_data.correct_option,
+        difficulty_level=question_data.difficulty_level
+    )
+    
+    db.add(ministry_question)
+    db.commit()
+    db.refresh(ministry_question)
+    
+    return ministry_question
+
+
+@router.get("/ministry-questions/", response_model=List[MinistryQuestionResponse])
+def list_ministry_questions(
+    subject: str = None,
+    grade: str = None,
+    year: int = None,
+    session: str = None,
+    difficulty_level: str = None,
+    skip: int = 0,
+    limit: int = 20,
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieve ministry questions with optional filters.
+    
+    Args:
+        subject: Filter by subject (e.g., "Math", "English")
+        grade: Filter by grade (e.g., "10", "11", "12")
+        year: Filter by year (e.g., 2023, 2024)
+        session: Filter by session ("first" or "second")
+        difficulty_level: Filter by difficulty level
+        skip: Pagination offset
+        limit: Pagination limit
+        db: Database session
+        
+    Returns:
+        List of ministry questions matching filters
+    """
+    query = db.query(MinistryQuestion)
+    
+    if subject:
+        query = query.filter(MinistryQuestion.subject == subject)
+    if grade:
+        query = query.filter(MinistryQuestion.grade == grade)
+    if year:
+        query = query.filter(MinistryQuestion.year == year)
+    if session:
+        query = query.filter(MinistryQuestion.session == session)
+    if difficulty_level:
+        query = query.filter(MinistryQuestion.difficulty_level == difficulty_level)
+    
+    questions = query.offset(skip).limit(limit).all()
+    return questions
+
+
+@router.get("/ministry-questions/{question_id}", response_model=MinistryQuestionResponse)
+def get_ministry_question(
+    question_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Get a specific ministry question by ID.
+    
+    Args:
+        question_id: Ministry question ID
+        db: Database session
+        
+    Returns:
+        Ministry question details
+    """
+    question = db.query(MinistryQuestion).filter(MinistryQuestion.id == question_id).first()
+    
+    if not question:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ministry question not found"
+        )
+    
+    return question
+
+
+@router.delete("/ministry-questions/{question_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_ministry_question(
+    question_id: str,
+    user_id: str = None,  # Optional, for admin-only access in future
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a ministry question.
+    
+    Args:
+        question_id: Ministry question ID
+        user_id: Current user ID (optional, for future admin checks)
+        db: Database session
+    """
+    question = db.query(MinistryQuestion).filter(MinistryQuestion.id == question_id).first()
+    
+    if not question:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ministry question not found"
+        )
+    
+    db.delete(question)
+    db.commit()
+    
+    return None
+
+
+# ==================== Exam Creation from Ministry Questions ====================
+
+class CreateExamFromMinistryRequest(BaseModel):
+    """Request model for creating exam from ministry questions."""
+    title: str
+    description: Optional[str] = None
+    total_time_minutes: int = 60
+    passing_score: float = 60.0
+    instructions: Optional[str] = None
+    ministry_question_ids: List[str]  # List of ministry question IDs to include
+
+
+@router.post("/from-ministry-questions", response_model=ExamResponse, status_code=status.HTTP_201_CREATED)
+def create_exam_from_ministry_questions(
+    request_data: CreateExamFromMinistryRequest,
+    user_id: str = None,  # Optional for now
+    db: Session = Depends(get_db)
+):
+    """
+    Create a new exam using selected ministry questions.
+    
+    Args:
+        request_data: Contains exam details and list of ministry_question_ids
+        user_id: Current user ID (optional)
+        db: Database session
+        
+    Returns:
+        Created exam with linked ministry questions
+    """
+    # Verify all ministry questions exist
+    ministry_questions = db.query(MinistryQuestion).filter(
+        MinistryQuestion.id.in_(request_data.ministry_question_ids)
+    ).all()
+    
+    if not ministry_questions:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No ministry questions found with provided IDs"
+        )
+    
+    if len(ministry_questions) != len(request_data.ministry_question_ids):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Some ministry question IDs do not exist"
+        )
+    
+    # Determine subject and grade from first question (they should be consistent)
+    first_question = ministry_questions[0]
+    exam_id = f"exam_{uuid.uuid4().hex[:12]}"
+    
+    exam = Exam(
+        id=exam_id,
+        title=request_data.title,
+        description=request_data.description,
+        subject=first_question.subject,
+        grade_level=first_question.grade,
+        total_questions=len(ministry_questions),
+        total_time_minutes=request_data.total_time_minutes,
+        passing_score=request_data.passing_score,
+        instructions=request_data.instructions,
+        ministry_questions=ministry_questions
+    )
+    
+    db.add(exam)
+    db.commit()
+    db.refresh(exam)
+    
+    return exam
+
+
+@router.get("/from-ministry/{exam_id}/questions", response_model=List[MinistryQuestionResponse])
+def get_exam_ministry_questions(
+    exam_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Get all ministry questions linked to an exam.
+    
+    Args:
+        exam_id: Exam ID
+        db: Database session
+        
+    Returns:
+        List of ministry questions in the exam
+    """
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    
+    if not exam:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Exam not found"
+        )
+    
+    return exam.ministry_questions

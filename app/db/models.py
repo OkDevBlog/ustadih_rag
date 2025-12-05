@@ -1,9 +1,18 @@
-from sqlalchemy import Column, String, Boolean, DateTime, Text, Integer, Float, ForeignKey, JSON, Enum
+from sqlalchemy import Column, String, Boolean, DateTime, Text, Integer, Float, ForeignKey, JSON, Enum, Table
 from sqlalchemy.orm import declarative_base, relationship
 from datetime import datetime
 import enum
 
 Base = declarative_base()
+
+
+# Association table for Exam and MinistryQuestion
+exam_ministry_questions = Table(
+    'exam_ministry_questions',
+    Base.metadata,
+    Column('exam_id', String, ForeignKey('exams.id'), primary_key=True),
+    Column('ministry_question_id', String, ForeignKey('ministry_questions.id'), primary_key=True)
+)
 
 
 class User(Base):
@@ -76,6 +85,7 @@ class Exam(Base):
     # Relationships
     questions = relationship("Question", back_populates="exam", cascade="all, delete-orphan")
     attempts = relationship("ExamAttempt", back_populates="exam", cascade="all, delete-orphan")
+    ministry_questions = relationship("MinistryQuestion", secondary=exam_ministry_questions, backref="exams")
 
 
 class ExamAttempt(Base):
@@ -95,6 +105,24 @@ class ExamAttempt(Base):
     # Relationships
     user = relationship("User", back_populates="exam_attempts")
     exam = relationship("Exam", back_populates="attempts")
+
+
+class MinistryQuestion(Base):
+    __tablename__ = "ministry_questions"
+    
+    id = Column(String, primary_key=True, index=True)
+    subject = Column(String, nullable=False, index=True)  # e.g., "Math", "English", "Chemistry"
+    grade = Column(String, nullable=False, index=True)  # e.g., "10", "11", "12"
+    year = Column(Integer, nullable=False, index=True)  # e.g., 2023, 2024
+    session = Column(String, nullable=False, index=True)  # دور: "first" (دور أول) or "second" (دور ثاني)
+    question_text = Column(Text, nullable=False)
+    answer_key = Column(Text, nullable=False)  # النموذج الإجابة
+    question_type = Column(String, default="multiple_choice")  # multiple_choice, short_answer, essay
+    options = Column(JSON, nullable=True)  # For multiple choice: [{"id": "A", "text": "..."}, ...]
+    correct_option = Column(String, nullable=True)  # For multiple choice: "A", "B", "C", "D"
+    difficulty_level = Column(String, default="intermediate")  # beginner, intermediate, advanced
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class TutoringSession(Base):

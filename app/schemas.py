@@ -94,7 +94,7 @@ class ExamBase(BaseModel):
 
 
 class ExamCreate(ExamBase):
-    pass
+    ministry_question_ids: Optional[List[str]] = None  # List of ministry question IDs to include
 
 
 class ExamUpdate(BaseModel):
@@ -201,6 +201,42 @@ class RAGAnswer(BaseModel):
     answer: str
     sources: List[RAGSource] = []
     confidence: float = 1.0
+
+
+# ==================== Ministry Questions Schemas ====================
+
+class MinistryQuestionBase(BaseModel):
+    subject: str  # e.g., "Math", "English", "Chemistry"
+    grade: str  # e.g., "10", "11", "12"
+    year: int  # e.g., 2023, 2024
+    session: str  # "first" (دور أول) or "second" (دور ثاني)
+    question_text: str
+    answer_key: str  # النموذج الإجابة
+    question_type: str = "multiple_choice"  # multiple_choice, short_answer, essay
+    options: Optional[List[Dict[str, str]]] = None  # [{"id": "A", "text": "..."}, ...]
+    correct_option: Optional[str] = None  # "A", "B", "C", "D"
+    difficulty_level: str = "intermediate"  # beginner, intermediate, advanced
+
+
+class MinistryQuestionCreate(MinistryQuestionBase):
+    pass
+
+
+class MinistryQuestionResponse(MinistryQuestionBase):
+    id: str
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class MinistryQuestionFilter(BaseModel):
+    subject: Optional[str] = None
+    grade: Optional[str] = None
+    year: Optional[int] = None
+    session: Optional[str] = None
+    difficulty_level: Optional[str] = None
 
 
 # ==================== Auth Schemas ====================
