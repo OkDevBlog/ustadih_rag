@@ -24,6 +24,7 @@ authlib==1.3.0
 python-dotenv==1.0.1
 pydantic==2.6.3
 pydantic-settings==2.2.1
+email-validator==2.1.0
 
 # =========================
 # ChromaDB (Vector Store)
@@ -53,9 +54,4 @@ python-multipart==0.0.9
 # LLM Providers (اختر واحد فقط لاحقًا)
 # =========================
 openai==1.12.0
-
-
-
-
-# fastapi
-# uvicorn
+google-generativeai==0.3.0
