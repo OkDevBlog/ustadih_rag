@@ -1,0 +1,61 @@
+# =========================
+# Core Backend
+# =========================
+fastapi==0.110.0
+uvicorn[standard]==0.29.0
+
+# =========================
+# Database (PostgreSQL)
+# =========================
+sqlalchemy==2.0.27
+psycopg2-binary==2.9.9
+alembic==1.13.1
+
+# =========================
+# Auth & Security
+# =========================
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+authlib==1.3.0
+
+# =========================
+# Environment
+# =========================
+python-dotenv==1.0.1
+pydantic==2.6.3
+pydantic-settings==2.2.1
+
+# =========================
+# ChromaDB (Vector Store)
+# =========================
+chromadb==0.4.24
+
+# =========================
+# Embeddings & RAG
+# =========================
+sentence-transformers==2.5.1
+numpy==1.26.4
+scikit-learn==1.4.1.post1
+
+# =========================
+# HTTP & Utils
+# =========================
+httpx==0.27.0
+requests==2.31.0
+tqdm==4.66.2
+
+# =========================
+# File Uploads (Optional)
+# =========================
+python-multipart==0.0.9
+
+# =========================
+# LLM Providers (اختر واحد فقط لاحقًا)
+# =========================
+openai==1.12.0
+
+
+
+
+# fastapi
+# uvicorn
