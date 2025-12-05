@@ -5,12 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List, Dict, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import uuid
 import json
 
 from app.db.session import SessionLocal
-from app.db.models import Exam, Question, ExamAttempt, User
+from app.db.models import Exam, Question, ExamAttempt, User, MinistryExamAttempt
 from app.schemas import (
     ExamCreate,
     ExamResponse,
@@ -23,7 +23,9 @@ from app.schemas import (
     HealthResponse,
     MinistryQuestionCreate,
     MinistryQuestionResponse,
-    MinistryQuestionFilter
+    MinistryQuestionFilter,
+    MinistryExamAttemptSubmit,
+    MinistryExamAttemptResponse
 )
 from app.db.models import MinistryQuestion
 
@@ -685,3 +687,206 @@ def get_exam_ministry_questions(
         )
     
     return exam.ministry_questions
+
+
+# ==================== Ministry Exam Answering ====================
+
+@router.post("/ministry/{exam_id}/start", response_model=MinistryExamAttemptResponse, status_code=status.HTTP_201_CREATED)
+def start_ministry_exam_attempt(
+    exam_id: str,
+    user_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Start a new attempt on a ministry exam.
+    
+    Args:
+        exam_id: Exam ID
+        user_id: User ID
+        db: Database session
+        
+    Returns:
+        New exam attempt with empty answers
+    """
+    # Verify exam exists
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Exam not found"
+        )
+    
+    # Verify user exists
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Create new attempt
+    attempt_id = f"mea_{uuid.uuid4().hex[:12]}"
+    attempt = MinistryExamAttempt(
+        id=attempt_id,
+        user_id=user_id,
+        exam_id=exam_id,
+        answers={},
+        scores={},
+        max_score=len(exam.ministry_questions) * 1.0 if exam.ministry_questions else 100.0
+    )
+    
+    db.add(attempt)
+    db.commit()
+    db.refresh(attempt)
+    
+    return attempt
+
+
+@router.post("/ministry/{exam_id}/submit", response_model=MinistryExamAttemptResponse)
+def submit_ministry_exam_answers(
+    exam_id: str,
+    attempt_data: MinistryExamAttemptSubmit,
+    db: Session = Depends(get_db)
+):
+    """
+    Submit answers for a ministry exam and get scored results.
+    Automatically grades multiple choice questions and tracks answers.
+    
+    Args:
+        exam_id: Exam ID
+        attempt_data: Contains user_id and list of answers
+        db: Database session
+        
+    Returns:
+        Updated attempt with scores and total score
+    """
+    # Get the attempt
+    attempt = db.query(MinistryExamAttempt).filter(
+        MinistryExamAttempt.exam_id == exam_id,
+        MinistryExamAttempt.user_id == attempt_data.user_id,
+        MinistryExamAttempt.is_completed == False
+    ).first()
+    
+    if not attempt:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Active exam attempt not found"
+        )
+    
+    # Get the exam and its questions
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam or not exam.ministry_questions:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Exam or questions not found"
+        )
+    
+    # Create a map of question IDs to questions for quick lookup
+    questions_map = {q.id: q for q in exam.ministry_questions}
+    
+    # Process answers and calculate scores
+    total_score = 0.0
+    scores_dict = {}
+    answers_dict = {}
+    
+    for answer_item in attempt_data.answers:
+        question_id = answer_item.ministry_question_id
+        user_answer = answer_item.answer
+        
+        if question_id not in questions_map:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Question {question_id} not in this exam"
+            )
+        
+        question = questions_map[question_id]
+        answers_dict[question_id] = user_answer
+        
+        # Score the answer
+        score = 0.0
+        if question.question_type == "multiple_choice":
+            # Auto-grade multiple choice
+            if user_answer.upper() == question.correct_option.upper():
+                score = 1.0
+        else:
+            # For short answer and essay, mark as submitted (manual grading needed)
+            # For now, we'll just store the answer
+            score = 0.0
+        
+        scores_dict[question_id] = score
+        total_score += score
+    
+    # Update attempt
+    attempt.answers = answers_dict
+    attempt.scores = scores_dict
+    attempt.total_score = total_score
+    attempt.is_completed = True
+    attempt.submitted_at = datetime.utcnow()
+    
+    # Calculate time taken if needed
+    if attempt.started_at:
+        time_delta = datetime.utcnow() - attempt.started_at
+        attempt.time_taken_seconds = int(time_delta.total_seconds())
+    
+    db.commit()
+    db.refresh(attempt)
+    
+    return attempt
+
+
+@router.get("/ministry/{exam_id}/attempts", response_model=List[MinistryExamAttemptResponse])
+def get_ministry_exam_attempts(
+    exam_id: str,
+    user_id: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Get exam attempts for a ministry exam.
+    Optionally filter by specific user.
+    
+    Args:
+        exam_id: Exam ID
+        user_id: Optional user ID to filter attempts
+        db: Database session
+        
+    Returns:
+        List of exam attempts
+    """
+    query = db.query(MinistryExamAttempt).filter(MinistryExamAttempt.exam_id == exam_id)
+    
+    if user_id:
+        query = query.filter(MinistryExamAttempt.user_id == user_id)
+    
+    attempts = query.all()
+    return attempts
+
+
+@router.get("/ministry/{exam_id}/attempts/{attempt_id}", response_model=MinistryExamAttemptResponse)
+def get_ministry_exam_attempt(
+    exam_id: str,
+    attempt_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Get a specific exam attempt with detailed results.
+    
+    Args:
+        exam_id: Exam ID
+        attempt_id: Attempt ID
+        db: Database session
+        
+    Returns:
+        Exam attempt with answers and scores
+    """
+    attempt = db.query(MinistryExamAttempt).filter(
+        MinistryExamAttempt.id == attempt_id,
+        MinistryExamAttempt.exam_id == exam_id
+    ).first()
+    
+    if not attempt:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Exam attempt not found"
+        )
+    
+    return attempt

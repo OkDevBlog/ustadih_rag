@@ -125,6 +125,26 @@ class MinistryQuestion(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class MinistryExamAttempt(Base):
+    __tablename__ = "ministry_exam_attempts"
+    
+    id = Column(String, primary_key=True, index=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    exam_id = Column(String, ForeignKey("exams.id"), nullable=False, index=True)
+    answers = Column(JSON, default=dict)  # {"ministry_question_id": "user_answer", ...}
+    scores = Column(JSON, default=dict)  # {"ministry_question_id": score_value, ...}
+    total_score = Column(Float, default=0.0)
+    max_score = Column(Float, default=100.0)
+    is_completed = Column(Boolean, default=False)
+    started_at = Column(DateTime, default=datetime.utcnow)
+    submitted_at = Column(DateTime, nullable=True)
+    time_taken_seconds = Column(Integer, nullable=True)
+    
+    # Relationships
+    user = relationship("User", backref="ministry_exam_attempts")
+    exam = relationship("Exam", backref="ministry_exam_attempts")
+
+
 class TutoringSession(Base):
     __tablename__ = "tutoring_sessions"
     

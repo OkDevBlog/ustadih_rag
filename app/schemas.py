@@ -239,6 +239,41 @@ class MinistryQuestionFilter(BaseModel):
     difficulty_level: Optional[str] = None
 
 
+# ==================== Ministry Exam Attempt Schemas ====================
+
+class MinistryExamAttemptStart(BaseModel):
+    exam_id: str
+    user_id: str
+
+
+class MinistryExamAnswer(BaseModel):
+    ministry_question_id: str
+    answer: str
+
+
+class MinistryExamAttemptSubmit(BaseModel):
+    exam_id: str
+    user_id: str
+    answers: List[MinistryExamAnswer]  # List of question_id: answer pairs
+
+
+class MinistryExamAttemptResponse(BaseModel):
+    id: str
+    user_id: str
+    exam_id: str
+    answers: Dict[str, str]  # {question_id: user_answer}
+    scores: Dict[str, float]  # {question_id: score}
+    total_score: float
+    max_score: float
+    is_completed: bool
+    started_at: datetime
+    submitted_at: Optional[datetime] = None
+    time_taken_seconds: Optional[int] = None
+    
+    class Config:
+        from_attributes = True
+
+
 # ==================== Auth Schemas ====================
 
 class TokenResponse(BaseModel):
