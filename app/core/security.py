@@ -8,7 +8,9 @@ from typing import Optional
 from app.config import settings
 
 # Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Use PBKDF2 (pbkdf2_sha256) to avoid external bcrypt dependency issues
+# PBKDF2 is secure and uses stdlib crypto primitives (no external C extensions required)
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
@@ -64,7 +66,7 @@ def get_user_id_from_token(token: str) -> Optional[str]:
 
 def hash_password(password: str) -> str:
     """
-    Hash a password using bcrypt.
+    Hash a password using PBKDF2-SHA256.
     
     Args:
         password: Plain text password

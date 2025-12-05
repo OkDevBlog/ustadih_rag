@@ -8,7 +8,7 @@ import numpy as np
 class EmbeddingService:
     """Service for generating document embeddings using sentence-transformers."""
     
-    def __init__(self, model_name: str = "sentence-transformers/multilingual-MiniLM-L12-v2"):
+    def __init__(self, model_name: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"):
         """
         Initialize the embedding service.
         
