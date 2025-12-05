@@ -40,6 +40,7 @@ class StudyMaterial(Base):
     content = Column(Text, nullable=False)
     topic = Column(String, nullable=False, index=True)
     subject = Column(String, nullable=False, index=True)
+    grade = Column(String, nullable=True, index=True)
     difficulty_level = Column(String, default="intermediate")  # beginner, intermediate, advanced
     chromadb_id = Column(String, nullable=True)  # Reference to ChromaDB embedding
     created_at = Column(DateTime, default=datetime.utcnow)

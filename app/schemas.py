@@ -36,11 +36,22 @@ class StudyMaterialBase(BaseModel):
     content: str
     topic: str
     subject: str
+    grade: Optional[str] = None
     difficulty_level: str = "intermediate"
 
 
 class StudyMaterialCreate(StudyMaterialBase):
     pass
+
+
+class StudyMaterialUpload(BaseModel):
+    title: str
+    content_markdown: str = Field(..., description="Markdown content to be parsed and stored")
+    topic: str
+    subject: str
+    grade: Optional[str] = None
+    difficulty_level: Optional[str] = "intermediate"
+    material_id: Optional[str] = None
 
 
 class StudyMaterialResponse(StudyMaterialBase):

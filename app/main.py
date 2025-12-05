@@ -7,6 +7,7 @@ from app.auth.routes import router as auth_router
 from app.users.routes import router as users_router
 from app.tutoring.routes import router as tutoring_router
 from app.exams.routes import router as exams_router
+from app.rag.routes import router as rag_router
 
 app = FastAPI(
     title="Ustadih RAG - Educational AI Tutor",
@@ -28,6 +29,7 @@ app.include_router(auth_router, prefix="/auth", tags=["authentication"])
 app.include_router(users_router, prefix="/users", tags=["users"])
 app.include_router(tutoring_router, prefix="/tutoring", tags=["tutoring"])
 app.include_router(exams_router, prefix="/exams", tags=["exams"])
+app.include_router(rag_router, prefix="/rag", tags=["rag"])
 
 
 @app.get("/")
