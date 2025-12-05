@@ -154,6 +154,7 @@ class MessageBase(BaseModel):
 class TutoringSessionStart(BaseModel):
     topic: str
     subject: str
+    grade: Optional[str] = None
     title: Optional[str] = None
 
 
@@ -172,6 +173,7 @@ class TutoringSessionResponse(BaseModel):
     user_id: str
     topic: str
     subject: str
+    grade: Optional[str] = None
     title: Optional[str] = None
     messages: List[Dict[str, Any]] = []
     materials_used: List[str] = []

@@ -91,6 +91,7 @@ def start_tutoring_session(
         user_id=user_id,
         topic=session_data.topic,
         subject=session_data.subject,
+        grade=session_data.grade,
         title=session_data.title or f"Tutoring: {session_data.topic}",
         messages=[],
         materials_used=[]

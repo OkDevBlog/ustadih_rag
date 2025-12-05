@@ -153,6 +153,7 @@ class TutoringSession(Base):
     user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
     topic = Column(String, nullable=False, index=True)
     subject = Column(String, nullable=False, index=True)
+    grade = Column(String, nullable=True, index=True)
     title = Column(String, nullable=True)
     messages = Column(JSON, default=list)  # [{"role": "user/assistant", "content": "...", "timestamp": "..."}, ...]
     materials_used = Column(JSON, default=list)  # ["material_id_1", "material_id_2", ...]
