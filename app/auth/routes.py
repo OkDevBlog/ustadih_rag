@@ -6,11 +6,11 @@ from starlette.responses import RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session
 import uuid
 
-from app.core.security import create_access_token
+from app.core.security import create_access_token, hash_password, verify_password
 from app.db.session import SessionLocal
 from app.db.models import User
 from app.auth.google_oauth import oauth
-from app.schemas import TokenResponse, HealthResponse
+from app.schemas import TokenResponse, HealthResponse, UserCreate, LoginRequest
 
 router = APIRouter()
 
@@ -106,3 +106,45 @@ async def get_token(user_id: str, db: Session = Depends(get_db)):
         "access_token": access_token,
         "token_type": "bearer"
     }
+
+
+@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+def register(user: UserCreate, db: Session = Depends(get_db)):
+    """Register a new user with email and password."""
+    # Validate input
+    if not user.password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password is required")
+
+    existing = db.query(User).filter(User.email == user.email).first()
+    if existing:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
+
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+    hashed = hash_password(user.password)
+
+    new_user = User(
+        id=user_id,
+        email=user.email,
+        hashed_password=hashed,
+        full_name=user.full_name,
+        is_active=True
+    )
+    db.add(new_user)
+    db.commit()
+
+    access_token = create_access_token({"sub": new_user.id})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.post("/login", response_model=TokenResponse)
+def login(credentials: LoginRequest, db: Session = Depends(get_db)):
+    """Login with email and password and receive JWT token."""
+    user = db.query(User).filter(User.email == credentials.email).first()
+    if not user or not user.hashed_password:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    if not verify_password(credentials.password, user.hashed_password):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    access_token = create_access_token({"sub": user.id})
+    return {"access_token": access_token, "token_type": "bearer"}
