@@ -231,11 +231,12 @@ RESPONSE:"""
                 "subject": subject,
                 "difficulty": difficulty
             }
-            self.vector_store.add_study_material(material_id, content, metadata)
-            return True
+            # add_study_material returns the material id on success
+            stored_id = self.vector_store.add_study_material(material_id, content, metadata)
+            return stored_id
         except Exception as e:
             print(f"Error adding study material: {e}")
-            return False
+            return None
     
     def add_question(self, question_id: str, question_text: str, answer_text: str,
                     topic: str, subject: str, difficulty: str = "intermediate") -> bool:

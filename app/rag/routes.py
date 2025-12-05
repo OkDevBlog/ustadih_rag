@@ -72,81 +72,95 @@ def upload_markdown_material(
     content_text = markdown_to_text(payload.content_markdown)
 
     pipeline = get_rag_pipeline()
-    added = pipeline.add_study_material(
-        material_id=material_id,
-        title=payload.title,
-        content=content_text,
-        topic=payload.topic,
-        subject=payload.subject,
-        difficulty=payload.difficulty_level or "intermediate"
-    )
-
-    if not added:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to add material to vector store")
-
-    # Persist StudyMaterial in DB
     try:
-        # Inspect table columns to avoid inserting unknown columns when migrations
-        # have not been applied. This makes the endpoint resilient in development.
-        from sqlalchemy import inspect
-        bind = db.get_bind() if hasattr(db, 'get_bind') else getattr(db, 'bind', None)
-        has_grade = False
-        if bind is not None:
-            inspector = inspect(bind)
-            if inspector.has_table('study_materials'):
-                existing_columns = [c['name'] for c in inspector.get_columns('study_materials')]
-                has_grade = 'grade' in existing_columns
-
-                # If the table exists but the column is missing and the caller provided a grade,
-                # attempt a safe runtime ALTER TABLE to add the column. This mirrors the
-                # development-time convenience used elsewhere and prevents a hard 500.
-                if not has_grade and getattr(payload, 'grade', None) is not None:
-                    try:
-                        from sqlalchemy import text
-                        alter_sql = "ALTER TABLE study_materials ADD COLUMN IF NOT EXISTS grade VARCHAR"
-                        bind.execute(text(alter_sql))
-                        # Refresh inspection
-                        existing_columns = [c['name'] for c in inspector.get_columns('study_materials')]
-                        has_grade = 'grade' in existing_columns
-                    except Exception:
-                        # If ALTER fails, continue without grade to avoid masking the real error.
-                        has_grade = False
-
-        # Insert without grade first to avoid failing when the column is missing.
-        study_material_kwargs = dict(
-            id=material_id,
+        chroma_id = pipeline.add_study_material(
+            material_id=material_id,
             title=payload.title,
             content=content_text,
             topic=payload.topic,
             subject=payload.subject,
-            difficulty_level=payload.difficulty_level or "intermediate",
+            difficulty=payload.difficulty_level or "intermediate"
         )
+    except Exception as e:
+        # Catch vector-store/telemetry/internal errors and return a clear 500
+        # while logging the original exception for debugging.
+        print(f"Error adding material to vector store: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Vector store error: {e}")
 
-        study_material = StudyMaterial(**study_material_kwargs)
-        db.add(study_material)
-        db.commit()
-        db.refresh(study_material)
+    if not chroma_id:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to add material to vector store")
 
-        # If a grade was provided, ensure the column exists and update the row.
-        if getattr(payload, 'grade', None) is not None:
+    # Persist StudyMaterial in DB (simpler ORM-only flow)
+    try:
+        # If a material with this id already exists, update it instead of inserting
+        existing = None
+        try:
+            existing = db.get(StudyMaterial, material_id)
+        except Exception:
+            # Fallback to query if Session.get isn't available for some reason
+            existing = db.query(StudyMaterial).filter(StudyMaterial.id == material_id).first()
+
+        now = __import__('datetime').datetime.utcnow()
+
+        if existing:
+            # Prevent accidental overwrite: return 409 Conflict instead of auto-update.
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"StudyMaterial with id '{material_id}' already exists. Use update endpoint (PUT) to modify."
+            )
+
+        else:
+            # Create new record
+            study_material = StudyMaterial(
+                id=material_id,
+                title=payload.title,
+                content=content_text,
+                topic=payload.topic,
+                subject=payload.subject,
+                difficulty_level=payload.difficulty_level or "intermediate",
+                chromadb_id=chroma_id,
+                created_at=now,
+                updated_at=now,
+            )
+
+            if getattr(payload, 'grade', None) is not None:
+                try:
+                    study_material.grade = payload.grade
+                except Exception:
+                    pass
+
+            db.add(study_material)
             try:
-                from sqlalchemy import text
-                # Add column if missing (idempotent)
-                bind.execute(text("ALTER TABLE study_materials ADD COLUMN IF NOT EXISTS grade VARCHAR"))
-                # Update the just-created record with the grade
-                update_sql = text("UPDATE study_materials SET grade = :grade WHERE id = :id")
-                bind.execute(update_sql, {"grade": payload.grade, "id": material_id})
                 db.commit()
-                # Refresh ORM object
                 db.refresh(study_material)
-            except Exception:
-                # If update fails, rollback but keep the created record without grade
+            except Exception as e:
+                # Handle race where another transaction inserted the same id
+                try:
+                    from sqlalchemy.exc import IntegrityError
+                except Exception:
+                    IntegrityError = None
+
+                if IntegrityError is not None and isinstance(e, IntegrityError):
+                    try:
+                        db.rollback()
+                    except Exception:
+                        pass
+                    # Fetch the existing row and return it
+                    try:
+                        existing = db.get(StudyMaterial, material_id)
+                    except Exception:
+                        existing = db.query(StudyMaterial).filter(StudyMaterial.id == material_id).first()
+                    if existing:
+                        return existing
                 try:
                     db.rollback()
                 except Exception:
                     pass
+                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to persist study material: {e}")
+
+    except HTTPException:
+        raise
     except Exception as e:
-        # Rollback to keep session clean and provide clearer error to client
         try:
             db.rollback()
         except Exception:
