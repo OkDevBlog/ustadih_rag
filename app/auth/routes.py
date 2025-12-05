@@ -104,7 +104,8 @@ async def get_token(user_id: str, db: Session = Depends(get_db)):
     access_token = create_access_token({"sub": user.id})
     return {
         "access_token": access_token,
-        "token_type": "bearer"
+        "token_type": "bearer",
+        "user_id": user.id
     }
 
 
@@ -133,7 +134,7 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
     db.commit()
 
     access_token = create_access_token({"sub": new_user.id})
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {"access_token": access_token, "token_type": "bearer", "user_id": new_user.id}
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -147,4 +148,4 @@ def login(credentials: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     access_token = create_access_token({"sub": user.id})
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {"access_token": access_token, "token_type": "bearer", "user_id": user.id}

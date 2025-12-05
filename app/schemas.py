@@ -208,6 +208,7 @@ class RAGAnswer(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    user_id: Optional[str] = None
 
 
 class LoginRequest(BaseModel):
