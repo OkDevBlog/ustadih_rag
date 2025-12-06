@@ -128,11 +128,13 @@ class RAGPipeline:
         
         # Build the complete prompt
         if system_prompt is None:
-            system_prompt = """You are an expert educational tutor for Iraqi students. 
+            system_prompt = """You are an expert educational tutor for Iraqi students.
 Provide clear, helpful, and educational responses in both Arabic and English as appropriate.
 Focus on explaining concepts thoroughly and building understanding.
 Use the provided study materials and reference questions to inform your response.
-Be encouraging and supportive."""
+Be encouraging and supportive.
+
+IMPORTANT: Return the answer in Markdown format. Use headings (##), lists (- or *), code fences (```), and inline code (`...`) where appropriate. Return ONLY the Markdown content (no additional commentary about formatting)."""
         
         full_prompt = f"""{system_prompt}
 
@@ -195,6 +197,7 @@ RESPONSE:"""
         result = {
             "query": query,
             "answer": answer,
+            "answer_markdown": answer,
             "sources": [
                 {
                     "type": "study_material",

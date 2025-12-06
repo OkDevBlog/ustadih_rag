@@ -76,6 +76,10 @@ class QuestionBase(BaseModel):
     options: Optional[List[Dict[str, str]]] = None
     correct_option: Optional[str] = None
 
+    # Optional Markdown variants
+    question_markdown: Optional[str] = None
+    answer_markdown: Optional[str] = None
+
 
 class QuestionCreate(QuestionBase):
     exam_id: Optional[str] = None
@@ -87,6 +91,8 @@ class QuestionResponse(QuestionBase):
     chromadb_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    question_markdown: Optional[str] = None
+    answer_markdown: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -171,6 +177,7 @@ class TutoringSessionStart(BaseModel):
 
 class TutoringSessionQuestion(BaseModel):
     message: str
+    message_markdown: Optional[str] = None
     topic: Optional[str] = None
     subject: Optional[str] = None
 
@@ -213,6 +220,7 @@ class RAGAnswer(BaseModel):
     query: str
     answer: str
     sources: List[RAGSource] = []
+    answer_markdown: Optional[str] = None
     confidence: float = 1.0
 
 
@@ -229,6 +237,9 @@ class MinistryQuestionBase(BaseModel):
     options: Optional[List[Dict[str, str]]] = None  # [{"id": "A", "text": "..."}, ...]
     correct_option: Optional[str] = None  # "A", "B", "C", "D"
     difficulty_level: str = "intermediate"  # beginner, intermediate, advanced
+    # Optional Markdown variants
+    question_markdown: Optional[str] = None
+    answer_key_markdown: Optional[str] = None
 
 
 class MinistryQuestionCreate(MinistryQuestionBase):
@@ -239,6 +250,8 @@ class MinistryQuestionResponse(MinistryQuestionBase):
     id: str
     created_at: datetime
     updated_at: datetime
+    question_markdown: Optional[str] = None
+    answer_key_markdown: Optional[str] = None
     
     class Config:
         from_attributes = True

@@ -182,12 +182,16 @@ def add_question_to_exam(
             detail="Exam not found"
         )
     
+    # Prefer Markdown fields if provided
+    q_text = question_data.question_markdown if getattr(question_data, "question_markdown", None) else question_data.question_text
+    a_text = question_data.answer_markdown if getattr(question_data, "answer_markdown", None) else question_data.answer_text
+
     question_id = f"q_{uuid.uuid4().hex[:12]}"
     question = Question(
         id=question_id,
         exam_id=exam_id,
-        question_text=question_data.question_text,
-        answer_text=question_data.answer_text,
+        question_text=q_text,
+        answer_text=a_text,
         question_type=question_data.question_type,
         topic=question_data.topic,
         subject=question_data.subject,
@@ -203,6 +207,13 @@ def add_question_to_exam(
     
     db.commit()
     db.refresh(question)
+
+    # Attach transient markdown attributes for response (if any)
+    try:
+        question.question_markdown = question_data.question_markdown if getattr(question_data, "question_markdown", None) else None
+        question.answer_markdown = question_data.answer_markdown if getattr(question_data, "answer_markdown", None) else None
+    except Exception:
+        pass
     
     return question
 
@@ -477,14 +488,17 @@ def add_ministry_question(
     """
     question_id = f"mq_{uuid.uuid4().hex[:12]}"
     
+    mq_text = question_data.question_markdown if getattr(question_data, "question_markdown", None) else question_data.question_text
+    ak_text = question_data.answer_key_markdown if getattr(question_data, "answer_key_markdown", None) else question_data.answer_key
+
     ministry_question = MinistryQuestion(
         id=question_id,
         subject=question_data.subject,
         grade=question_data.grade,
         year=question_data.year,
         session=question_data.session,
-        question_text=question_data.question_text,
-        answer_key=question_data.answer_key,
+        question_text=mq_text,
+        answer_key=ak_text,
         question_type=question_data.question_type,
         options=question_data.options,
         correct_option=question_data.correct_option,
@@ -494,6 +508,12 @@ def add_ministry_question(
     db.add(ministry_question)
     db.commit()
     db.refresh(ministry_question)
+
+    try:
+        ministry_question.question_markdown = question_data.question_markdown if getattr(question_data, "question_markdown", None) else None
+        ministry_question.answer_key_markdown = question_data.answer_key_markdown if getattr(question_data, "answer_key_markdown", None) else None
+    except Exception:
+        pass
     
     return ministry_question
 

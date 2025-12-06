@@ -142,24 +142,27 @@ def ask_question(
     subject = question_data.subject or session.subject
     topic = question_data.topic or session.topic
     
+    # Prefer Markdown query if provided
+    used_query = question_data.message_markdown if getattr(question_data, "message_markdown", None) else question_data.message
+
     rag_result = pipeline.answer_question(
-        query=question_data.message,
+        query=used_query,
         subject=subject,
         user_id=user_id
     )
     
     # Update session with new messages
     messages = session.messages or []
-    messages.append({
-        "role": "user",
-        "content": question_data.message,
-        "timestamp": datetime.utcnow().isoformat()
-    })
-    messages.append({
-        "role": "assistant",
-        "content": rag_result["answer"],
-        "timestamp": datetime.utcnow().isoformat()
-    })
+    user_msg = {"role": "user", "content": question_data.message, "timestamp": datetime.utcnow().isoformat()}
+    if getattr(question_data, "message_markdown", None):
+        user_msg["content_markdown"] = question_data.message_markdown
+
+    assistant_msg = {"role": "assistant", "content": rag_result.get("answer"), "timestamp": datetime.utcnow().isoformat()}
+    if rag_result.get("answer_markdown"):
+        assistant_msg["content_markdown"] = rag_result.get("answer_markdown")
+
+    messages.append(user_msg)
+    messages.append(assistant_msg)
     
     # Track materials used
     materials_used = session.materials_used or []
@@ -172,8 +175,9 @@ def ask_question(
     db.commit()
     
     return RAGAnswer(
-        query=question_data.message,
-        answer=rag_result["answer"],
+        query=used_query,
+        answer=rag_result.get("answer"),
+        answer_markdown=rag_result.get("answer_markdown"),
         sources=rag_result.get("sources", [])
     )
 
